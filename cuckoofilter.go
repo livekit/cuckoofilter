@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"math/rand"
+
+	"github.com/zeebo/wyhash"
 )
 
 // maxCuckooKickouts is the maximum number of times reinsert
@@ -18,6 +19,7 @@ type Filter struct {
 	// Bit mask set to len(buckets) - 1. As len(buckets) is always a power of 2,
 	// applying this mask mimics the operation x % len(buckets).
 	bucketIndexMask uint
+	rng             wyhash.RNG
 }
 
 // NewFilter returns a new cuckoofilter suitable for the given number of elements.
@@ -72,7 +74,7 @@ func (cf *Filter) Insert(data []byte) bool {
 	if cf.insert(fp, i2) {
 		return true
 	}
-	return cf.reinsert(fp, randi(i1, i2))
+	return cf.reinsert(fp, randi(&cf.rng, i1, i2))
 }
 
 func (cf *Filter) insert(fp fingerprint, i uint) bool {
@@ -85,7 +87,7 @@ func (cf *Filter) insert(fp fingerprint, i uint) bool {
 
 func (cf *Filter) reinsert(fp fingerprint, i uint) bool {
 	for k := 0; k < maxCuckooKickouts; k++ {
-		j := rand.Intn(bucketSize)
+		j := cf.rng.Intn(bucketSize)
 		// Swap fingerprint with bucket entry.
 		cf.buckets[i][j], fp = fp, cf.buckets[i][j]
 

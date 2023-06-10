@@ -2,24 +2,32 @@ package cuckoo
 
 import (
 	"encoding/binary"
-	"math/rand"
+	"math/bits"
 
-	metro "github.com/dgryski/go-metro"
+	"github.com/zeebo/wyhash"
+	"github.com/zeebo/xxh3"
 )
 
+var altHash [maxFingerprint + 1]uint
+
+func init() {
+	b := make([]byte, 2)
+	for i := 0; i < maxFingerprint+1; i++ {
+		binary.LittleEndian.PutUint16(b, uint16(i))
+		altHash[i] = (uint(xxh3.Hash(b)))
+	}
+}
+
 // randi returns either i1 or i2 randomly.
-func randi(i1, i2 uint) uint {
-	if rand.Int31()%2 == 0 {
+func randi(rng *wyhash.RNG, i1, i2 uint) uint {
+	if rng.Uint64()&1 == 0 {
 		return i1
 	}
 	return i2
 }
 
 func getAltIndex(fp fingerprint, i uint, bucketIndexMask uint) uint {
-	b := make([]byte, 2)
-	binary.LittleEndian.PutUint16(b, uint16(fp))
-	hash := uint(metro.Hash64(b, 1337))
-	return (i ^ hash) & bucketIndexMask
+	return (i ^ altHash[fp]) & bucketIndexMask
 }
 
 func getFingerprint(hash uint64) fingerprint {
@@ -32,7 +40,7 @@ func getFingerprint(hash uint64) fingerprint {
 
 // getIndexAndFingerprint returns the primary bucket index and fingerprint to be used
 func getIndexAndFingerprint(data []byte, bucketIndexMask uint) (uint, fingerprint) {
-	hash := metro.Hash64(data, 1337)
+	hash := xxh3.Hash(data)
 	f := getFingerprint(hash)
 	// Use least significant bits for deriving index.
 	i1 := uint(hash) & bucketIndexMask
@@ -40,13 +48,5 @@ func getIndexAndFingerprint(data []byte, bucketIndexMask uint) (uint, fingerprin
 }
 
 func getNextPow2(n uint64) uint {
-	n--
-	n |= n >> 1
-	n |= n >> 2
-	n |= n >> 4
-	n |= n >> 8
-	n |= n >> 16
-	n |= n >> 32
-	n++
-	return uint(n)
+	return uint(1 << bits.Len64(n-1))
 }
