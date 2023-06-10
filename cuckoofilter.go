@@ -129,15 +129,13 @@ const bytesPerBucket = bucketSize * fingerprintSizeBits / 8
 
 // Encode returns a byte slice representing a Cuckoofilter.
 func (cf *Filter) Encode() []byte {
-	res := new(bytes.Buffer)
-	res.Grow(len(cf.buckets) * bytesPerBucket)
-
+	buf := make([]byte, 0, len(cf.buckets)*bytesPerBucket)
 	for _, b := range cf.buckets {
 		for _, fp := range b {
-			binary.Write(res, binary.LittleEndian, fp)
+			buf = binary.LittleEndian.AppendUint16(buf, uint16(fp))
 		}
 	}
-	return res.Bytes()
+	return buf
 }
 
 // Decode returns a Cuckoofilter from a byte slice created using Encode.
@@ -156,9 +154,13 @@ func Decode(data []byte) (*Filter, error) {
 	buckets := make([]bucket, numBuckets)
 	reader := bytes.NewReader(data)
 
+	buf := make([]byte, 2)
 	for i, b := range buckets {
 		for j := range b {
-			binary.Read(reader, binary.LittleEndian, &buckets[i][j])
+			if _, err := reader.Read(buf); err != nil {
+				return nil, err
+			}
+			buckets[i][j] = fingerprint(binary.LittleEndian.Uint16(buf))
 			if buckets[i][j] != nullFp {
 				count++
 			}
