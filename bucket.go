@@ -21,11 +21,9 @@ const (
 // insert a fingerprint into a bucket. Returns true if there was enough space and insertion succeeded.
 // Note it allows inserting the same fingerprint multiple times.
 func (b *bucket) insert(fp fingerprint) bool {
-	for i, tfp := range b {
-		if tfp == nullFp {
-			b[i] = fp
-			return true
-		}
+	if i := b.index(nullFp); i != 4 {
+		b[i] = fp
+		return true
 	}
 	return false
 }
@@ -33,29 +31,36 @@ func (b *bucket) insert(fp fingerprint) bool {
 // delete a fingerprint from a bucket.
 // Returns true if the fingerprint was present and successfully removed.
 func (b *bucket) delete(fp fingerprint) bool {
-	for i, tfp := range b {
-		if tfp == fp {
-			b[i] = nullFp
-			return true
-		}
+	if i := b.index(fp); i != 4 {
+		b[i] = nullFp
+		return true
 	}
 	return false
 }
 
 func (b *bucket) contains(needle fingerprint) bool {
-	for _, fp := range b {
-		if fp == needle {
-			return true
-		}
+	return b.index(needle) != 4
+}
+
+func (b *bucket) index(needle fingerprint) uint8 {
+	if b[0] == needle {
+		return 0
 	}
-	return false
+	if b[1] == needle {
+		return 1
+	}
+	if b[2] == needle {
+		return 2
+	}
+	if b[3] == needle {
+		return 3
+	}
+	return 4
 }
 
 // reset deletes all fingerprints in the bucket.
 func (b *bucket) reset() {
-	for i := range b {
-		b[i] = nullFp
-	}
+	*b = [bucketSize]fingerprint{nullFp, nullFp, nullFp, nullFp}
 }
 
 func (b *bucket) String() string {
