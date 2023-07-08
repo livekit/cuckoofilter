@@ -37,7 +37,7 @@ func NewFilter(numElements uint) *Filter {
 	return &Filter{
 		buckets:         buckets,
 		count:           0,
-		bucketIndexMask: uint(len(buckets) - 1),
+		bucketIndexMask: numBuckets - 1,
 	}
 }
 
@@ -73,7 +73,11 @@ func (cf *Filter) Insert(data []byte) bool {
 	if cf.insert(fp, i2) {
 		return true
 	}
-	return cf.reinsert(fp, randi(&cf.rng, i1, i2))
+	if cf.rng.Uint64()&1 == 0 {
+		return cf.reinsert(fp, i1)
+	} else {
+		return cf.reinsert(fp, i2)
+	}
 }
 
 func (cf *Filter) insert(fp fingerprint, i uint) bool {
@@ -86,9 +90,9 @@ func (cf *Filter) insert(fp fingerprint, i uint) bool {
 
 func (cf *Filter) reinsert(fp fingerprint, i uint) bool {
 	for k := 0; k < maxCuckooKickouts; k++ {
-		j := cf.rng.Intn(bucketSize)
+		j := cf.rng.Uint64() & (bucketSize - 1)
 		// Swap fingerprint with bucket entry.
-		cf.buckets[i][j], fp = fp, cf.buckets[i][j]
+		fp = cf.buckets[i].swap(j, fp)
 
 		// Move kicked out fingerprint to alternate location.
 		i = getAltIndex(fp, i, cf.bucketIndexMask)
@@ -130,9 +134,7 @@ const bytesPerBucket = bucketSize * fingerprintSizeBits / 8
 func (cf *Filter) Encode() []byte {
 	buf := make([]byte, 0, len(cf.buckets)*bytesPerBucket)
 	for _, b := range cf.buckets {
-		for _, fp := range b {
-			buf = binary.LittleEndian.AppendUint16(buf, uint16(fp))
-		}
+		buf = binary.LittleEndian.AppendUint64(buf, uint64(b))
 	}
 	return buf
 }
@@ -152,14 +154,10 @@ func Decode(data []byte) (*Filter, error) {
 
 	var count, pos uint
 	buckets := make([]bucket, numBuckets)
-	for i, b := range buckets {
-		for j := range b {
-			buckets[i][j] = fingerprint(binary.LittleEndian.Uint16(data[pos : pos+2]))
-			pos += 2
-			if buckets[i][j] != nullFp {
-				count++
-			}
-		}
+	for i := range buckets {
+		buckets[i] = bucket(binary.LittleEndian.Uint64(data[pos : pos+8]))
+		pos += 8
+		count += bucketSize - buckets[i].nullsCount()
 	}
 	return &Filter{
 		buckets:         buckets,

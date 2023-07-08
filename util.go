@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"math/bits"
 
-	"github.com/zeebo/wyhash"
 	"github.com/zeebo/xxh3"
 )
 
@@ -14,16 +13,8 @@ func init() {
 	b := make([]byte, 2)
 	for i := 0; i < maxFingerprint+1; i++ {
 		binary.LittleEndian.PutUint16(b, uint16(i))
-		altHash[i] = (uint(xxh3.Hash(b)))
+		altHash[i] = uint(xxh3.Hash(b))
 	}
-}
-
-// randi returns either i1 or i2 randomly.
-func randi(rng *wyhash.RNG, i1, i2 uint) uint {
-	if rng.Uint64()&1 == 0 {
-		return i1
-	}
-	return i2
 }
 
 func getAltIndex(fp fingerprint, i uint, bucketIndexMask uint) uint {
@@ -49,4 +40,14 @@ func getIndexAndFingerprint(data []byte, bucketIndexMask uint) (uint, fingerprin
 
 func getNextPow2(n uint64) uint {
 	return uint(1 << bits.Len64(n-1))
+}
+
+// SEE: https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord
+func findZeros(v uint64) uint64 {
+	return ^((((v & 0x7FFF7FFF7FFF7FFF) + 0x7FFF7FFF7FFF7FFF) | v) | 0x7FFF7FFF7FFF7FFF)
+}
+
+// SEE: https://graphics.stanford.edu/~seander/bithacks.html#ValueInWord
+func findValue(x uint64, n uint16) uint64 {
+	return findZeros(x ^ (^uint64(0) / (1<<16 - 1) * uint64(n)))
 }
