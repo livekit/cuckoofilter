@@ -132,19 +132,17 @@ const bytesPerBucket = bucketSize * fingerprintSizeBits / 8
 
 // Encode returns a byte slice representing a Cuckoofilter.
 func (cf *Filter) Encode() []byte {
-	buf := make([]byte, 0, len(cf.buckets)*bytesPerBucket)
+	buf := make([]byte, 0, len(cf.buckets)*bytesPerBucket+8)
 	for _, b := range cf.buckets {
 		buf = binary.LittleEndian.AppendUint64(buf, uint64(b))
 	}
+	buf = binary.LittleEndian.AppendUint64(buf, uint64(cf.rng))
 	return buf
 }
 
 // Decode returns a Cuckoofilter from a byte slice created using Encode.
 func Decode(data []byte) (*Filter, error) {
-	if len(data)%bucketSize != 0 {
-		return nil, fmt.Errorf("bytes must to be multiple of %d, got %d", bucketSize, len(data))
-	}
-	numBuckets := len(data) / bytesPerBucket
+	numBuckets := (len(data) - 8) / bytesPerBucket
 	if numBuckets < 1 {
 		return nil, fmt.Errorf("bytes can not be smaller than %d, size in bytes is %d", bytesPerBucket, len(data))
 	}
@@ -155,13 +153,15 @@ func Decode(data []byte) (*Filter, error) {
 	var count, pos uint
 	buckets := make([]bucket, numBuckets)
 	for i := range buckets {
-		buckets[i] = bucket(binary.LittleEndian.Uint64(data[pos : pos+8]))
+		buckets[i] = bucket(binary.LittleEndian.Uint64(data[pos:]))
 		pos += 8
 		count += bucketSize - buckets[i].nullsCount()
 	}
+	rng := binary.LittleEndian.Uint64(data[pos:])
 	return &Filter{
 		buckets:         buckets,
 		count:           count,
 		bucketIndexMask: uint(len(buckets) - 1),
+		rng:             wyhash.RNG(rng),
 	}, nil
 }
