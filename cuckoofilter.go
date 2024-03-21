@@ -26,10 +26,15 @@ type Filter struct {
 // A capacity of 1000000 is a normal default, which allocates
 // about ~2MB on 64-bit machines.
 func NewFilter(numElements uint) *Filter {
-	numBuckets := getNextPow2(uint64(numElements / bucketSize))
-	if float64(numElements)/float64(numBuckets*bucketSize) > 0.96 {
-		numBuckets <<= 1
+	paddedNumElements := getNextPow2(uint64(numElements/bucketSize)) * bucketSize
+	if float64(numElements)/float64(paddedNumElements) > 0.96 {
+		paddedNumElements <<= 1
 	}
+	return NewFilterWithoutPadding(paddedNumElements)
+}
+
+func NewFilterWithoutPadding(numElements uint) *Filter {
+	numBuckets := getNextPow2(uint64(numElements / bucketSize))
 	if numBuckets == 0 {
 		numBuckets = 1
 	}
