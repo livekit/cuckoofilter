@@ -1,24 +1,32 @@
 package cuckoo
 
 import (
-	"encoding/binary"
 	"math/bits"
 
 	"github.com/zeebo/xxh3"
 )
 
-var altHash [maxFingerprint + 1]uint
-
-func init() {
-	b := make([]byte, 2)
-	for i := 0; i < maxFingerprint+1; i++ {
-		binary.LittleEndian.PutUint16(b, uint16(i))
-		altHash[i] = uint(xxh3.Hash(b))
-	}
+// altHash is xxh3.Hash of fp as 2 little-endian bytes, specialized for that
+// input length. It must match xxh3 exactly or previously encoded filters break.
+func altHash(fp fingerprint) uint {
+	const (
+		key32_000 = 0xbe4ba423
+		key32_004 = 0x396cfeb8
+		prime64_2 = 14029467366897019727
+		prime64_3 = 1609587929392839161
+	)
+	x := uint64(fp)*(1<<24+1)>>8 + 2<<8
+	x ^= key32_000 ^ key32_004
+	x ^= x >> 33
+	x *= prime64_2
+	x ^= x >> 29
+	x *= prime64_3
+	x ^= x >> 32
+	return uint(x)
 }
 
 func getAltIndex(fp fingerprint, i uint, bucketIndexMask uint) uint {
-	return (i ^ altHash[fp]) & bucketIndexMask
+	return (i ^ altHash(fp)) & bucketIndexMask
 }
 
 func getFingerprint(hash uint64) fingerprint {
