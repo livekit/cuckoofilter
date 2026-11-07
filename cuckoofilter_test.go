@@ -129,54 +129,117 @@ func BenchmarkFilter_Reset(b *testing.B) {
 	}
 }
 
-// benchmarkKeys returns a slice of keys for benchmarking with length `size`.
+const (
+	benchKeyMinLen  = 16
+	benchKeyMaxLen  = 256
+	benchKeyMeanLen = 80
+)
+
+// benchmarkKeys returns size keys with lengths in [16, 256] averaging ~80 bytes,
+// skewed toward short keys like typical identifiers.
 func benchmarkKeys(b *testing.B, size int) [][]byte {
 	b.Helper()
-	keys := make([][]byte, size)
 	rng := rand.New(rand.NewSource(int64(size)))
+	keys := make([][]byte, size)
+	// Slightly above mean-min to compensate for the tail clipped at max.
+	const scale = benchKeyMeanLen - benchKeyMinLen + 1.5
 	for i := range keys {
-		keys[i] = make([]byte, 32)
-		if _, err := rng.Read(keys[i]); err != nil {
-			b.Error(err)
+		n := benchKeyMinLen + int(rng.ExpFloat64()*scale)
+		if n > benchKeyMaxLen {
+			n = benchKeyMaxLen
+		}
+		keys[i] = make([]byte, n)
+		for j := range keys[i] {
+			keys[i][j] = byte('!' + rng.Intn('~'-'!'+1))
 		}
 	}
 	return keys
 }
 
-func BenchmarkFilter_Insert(b *testing.B) {
-	const size = 10000
-	keys := benchmarkKeys(b, int(float64(size)*0.8))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; {
-		b.StopTimer()
-		filter := NewFilter(size)
-		b.StartTimer()
-		for _, k := range keys {
-			filter.Insert(k)
-			i++
+func TestBenchmarkKeys(t *testing.T) {
+	keys := benchmarkKeys(&testing.B{}, 100000)
+	var total int
+	for _, k := range keys {
+		if len(k) < benchKeyMinLen || len(k) > benchKeyMaxLen {
+			t.Fatalf("key length %d out of range", len(k))
 		}
+		total += len(k)
+	}
+	if mean := float64(total) / float64(len(keys)); math.Abs(mean-benchKeyMeanLen) > 1 {
+		t.Errorf("mean key length %.2f, want ~%d", mean, benchKeyMeanLen)
 	}
 }
 
-func BenchmarkFilter_Lookup(b *testing.B) {
-	f := NewFilter(10000)
-	keys := benchmarkKeys(b, 10000)
+var benchSizes = []uint{10_000, 1_000_000}
+
+func BenchmarkFilter_Insert(b *testing.B) {
+	for _, size := range benchSizes {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			keys := benchmarkKeys(b, int(float64(size)*0.9))
+			filter := NewFilter(size)
+			b.ResetTimer()
+			for i := 0; i < b.N; {
+				b.StopTimer()
+				filter.Reset()
+				b.StartTimer()
+				for _, k := range keys {
+					filter.Insert(k)
+				}
+				i += len(keys)
+			}
+		})
+	}
+}
+
+// lookupKeys returns a shuffled mix of present and absent keys.
+func lookupKeys(b *testing.B, f *Filter, size uint) [][]byte {
+	keys := benchmarkKeys(b, int(float64(size)*0.9))
 	for _, k := range keys {
 		f.Insert(k)
 	}
-	// One half is likely missing, other half is present.
-	lookupKeys := append(benchmarkKeys(b, 1000), keys[0:1000]...)
-	rand.New(rand.NewSource(42)).Shuffle(2000, func(i, j int) {
-		lookupKeys[i] = lookupKeys[j]
+	n := len(keys) / 2
+	lk := append(benchmarkKeys(b, n), keys[:n]...)
+	rand.New(rand.NewSource(42)).Shuffle(len(lk), func(i, j int) {
+		lk[i], lk[j] = lk[j], lk[i]
 	})
+	return lk
+}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; {
-		for _, k := range lookupKeys {
-			f.Lookup(k)
-			i++
-		}
+func BenchmarkFilter_Lookup(b *testing.B) {
+	for _, size := range benchSizes {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			f := NewFilter(size)
+			lk := lookupKeys(b, f, size)
+			b.ResetTimer()
+			for i := 0; i < b.N; {
+				for _, k := range lk {
+					f.Lookup(k)
+				}
+				i += len(lk)
+			}
+		})
+	}
+}
+
+func BenchmarkFilter_Delete(b *testing.B) {
+	for _, size := range benchSizes {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			f := NewFilter(size)
+			lk := lookupKeys(b, f, size)
+			snapshot := append([]bucket(nil), f.buckets...)
+			count := f.count
+			b.ResetTimer()
+			for i := 0; i < b.N; {
+				b.StopTimer()
+				copy(f.buckets, snapshot)
+				f.count = count
+				b.StartTimer()
+				for _, k := range lk {
+					f.Delete(k)
+				}
+				i += len(lk)
+			}
+		})
 	}
 }
 

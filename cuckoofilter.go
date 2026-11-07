@@ -49,12 +49,9 @@ func NewFilterWithoutPadding(numElements uint) *Filter {
 // Lookup returns true if data is in the filter.
 func (cf *Filter) Lookup(data []byte) bool {
 	i1, fp := getIndexAndFingerprint(data, cf.bucketIndexMask)
-	if b := cf.buckets[i1]; b.contains(fp) {
-		return true
-	}
 	i2 := getAltIndex(fp, i1, cf.bucketIndexMask)
-	b := cf.buckets[i2]
-	return b.contains(fp)
+	// Probe both buckets unconditionally so the two loads can overlap.
+	return (findValue(uint64(cf.buckets[i1]), uint16(fp)) | findValue(uint64(cf.buckets[i2]), uint16(fp))) != 0
 }
 
 // Reset removes all items from the filter, setting count to 0.
